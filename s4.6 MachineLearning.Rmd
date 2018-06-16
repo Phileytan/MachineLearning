@@ -1,0 +1,145 @@
+---
+title: "Machinelearning Project"
+author: "Philippe P"
+date: "13/06/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+## include= FALSE supprime toute impression. Si on veut juste retirer les 
+## messages : message=FALSE
+knitr::opts_chunk$set(echo = TRUE)
+library(gbm)
+library(caret)
+```
+
+
+## Summary
+
+We use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways (source: http://groupware.les.inf.puc-rio.br/har ). The goal is to predict the manner in which they did the exercise. This is the "classe" variable in the training dataset. 
+
+We split the TRAINING dataset : 
+
+- I fit 4 models on a training partition of the training dataset, 
+
+- compare them on a cross-validation set (to avoid overfitting), 
+
+- and evaluate them on a test set (data never used in this analysis).
+
+
+The TESTING dataset of 20 observations will only be used for the course questionnary and is not used for this report.
+
+
+## Subsetting the dataset
+
+Columns with missing values
+
+The testing data set and the training data set have columns will all their values missing, respectively 67 and 100. 
+
+
+As shown below, 60 columns are full of data. I removed the 2 first useless columns serial number (X) and name (1st column). 
+The last column are respectively classe and problem_id.
+
+
+```{r , echo=FALSE}
+
+data<-read.csv("./data/pml-training.csv")
+test20<-read.csv("./data/pml-testing.csv")
+```
+
+```{r }
+## Missing values for each column
+na_data <-sapply(data, function(y) sum(length(which(is.na(y)))))
+na_test20 <-sapply(test20, function(y) sum(length(which(is.na(y)))))
+na_count<-data.frame(cbind(na_data,na_test20))
+names(na_count)<-c("na_data","na_test20")
+table(na_count)
+```
+
+Enough data for cross validation ?
+
+For each value of the outcome "classe" there are many observations (the minimum is 3216 observation for class D). 
+
+```{r , echo=FALSE}
+table(data$classe)
+# the outcome is a factor : perfect !
+# str(data$classe)
+## selection of data without missing values
+## Fist and 2nd colum : X and name for both datasets
+## Last column : classe / problem_id for the test dataset
+dataF<-data[,na_test20==0]
+dataF<-dataF[, 3:length(dataF)]
+
+set.seed(14/06/2018)
+inTrain = createDataPartition(dataF$classe, p = 0.9)[[1]]
+temp = dataF[ inTrain,]
+testing = dataF[-inTrain,]
+inCross = createDataPartition(temp$classe, p = 0.8)[[1]]
+training = temp[ inCross,]
+cross = temp[-inCross,]
+
+```
+
+Therefore it seems possible and relevant to split the data with a cross validation set. I used : 10% for testing and then the 90% remaining data between tranining set (80%) and cross validation (20%) for comparing and choosing the different models tested.
+
+- Training : 14131 observations
+
+- Cross validation : 3531 observations
+
+- Testing : 1960 observations
+
+
+##  Building of the models & crossvalidation
+
+I trained 4 alternative models (3 and a combination) on the training partition :  
+
+- Random forest (rf) with options so that the computation time is 1 minutes 
+For trainControl, method is set to "cv" and number to 3. ntree is set to 50.
+
+- Generalized Boosted Regression Modeling (gbm)
+
+- Classification tree (rpart)
+
+- combination of the 2 best of those 3 models (according to the cross validation, the 2 first)
+
+
+I then compare their accuracy on the cross validation set to choose the final model : 
+
+ 
+```{r cache=TRUE}
+set.seed(62433)
+fitControl <- trainControl(method = "cv",  number = 3)
+
+## Random forest (rf)
+modFitrf <- train(classe ~ ., method="rf", ntree=50, data=training, trControl=fitControl)
+predrf <-predict(modFitrf, cross)
+confusionMatrix(cross$classe, predrf)$overall["Accuracy"]
+
+# Generalized Boosted Regression Modeling (gbm)
+modFitgbm <- train(classe ~ ., method="gbm", verbose=FALSE, data=training, trControl=fitControl)
+predgbm <-predict(modFitgbm, cross) 
+confusionMatrix(cross$classe, predgbm)$overall["Accuracy"]
+
+# Classification tree (rpart)
+modFitrp <- train(classe ~ ., method="rpart", data=training)
+predrp <-predict(modFitrp, cross) 
+confusionMatrix(cross$classe, predrp)$overall["Accuracy"]
+
+# combination of the 2 best (according to the cross validation, the 2 first)
+pred_all<-data.frame(predrf, predgbm, classe=cross$classe)
+modFitrf_all <- train(classe ~ ., method="rf", ntree=50, data=pred_all)
+confusionMatrix(pred_all$classe, predict(modFitrf_all, pred_all))$overall["Accuracy"]
+```
+
+## Final choice and confidence interval
+
+The Random Forest provides the best accuracy ! I use the dataset "testing" to estimate the accuracy and sample error with that model.
+
+The 95% confidence interval of accuracy is between 0.9963 and 0.9999
+
+```{r }
+predrf <-predict(modFitrf, testing)
+confusionMatrix(testing$classe, predrf)$overall
+```
+
+
